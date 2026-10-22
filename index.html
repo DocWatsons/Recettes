@@ -395,26 +395,57 @@ async function getRecipe(id){if(mine[id])return mine[id];if(favs[id])return favs
  const j=await api('lookup.php?i='+id);if(!j.meals)throw new Error('introuvable');return buildRecipe(j.meals[0])}
 async function randomRecipe(){for(let i=0;i<5;i++){const j=await api('random.php?x='+Date.now()+i);const m=j.meals&&j.meals[0];if(m&&m.strCategory!=='Dessert')return buildRecipe(m)}throw new Error('aucune')}
 
-/* ================= SOURCES FRANÇAISES (Ricardo, CuisineAZ) ================= */
-let cfg=store.get('cfg',{proxy:'',src:{ricardo:true,az:true,mdb:true}});
-const SRC_N={mdb:'TheMealDB',ricardo:'Ricardo',az:'CuisineAZ',user:'Ma recette'};
-const WSITES={
- ricardo:{host:'ricardocuisine.com',base:'https://www.ricardocuisine.com',search:q=>'https://www.ricardocuisine.com/recherche?searchValue='+encodeURIComponent(q),link:/^\/recettes\/\d+-[a-z0-9-]+\/?$/i},
- az:{host:'cuisineaz.com',base:'https://www.cuisineaz.com',search:q=>'https://www.cuisineaz.com/recettes/recherche_terme.aspx?recherche='+encodeURIComponent(q.replace(/\s+/g,'-')),link:/^\/recettes\/[a-z0-9-]+-\d+\.aspx$/i}
+/* ================= SOURCES WEB =================
+   Pour ajouter un site : ajoute UNE ligne dans SITES ci-dessous (et son adresse dans le relais Cloudflare).
+   n = nom affiché · lang = 'fr' ou 'en' (en = traduit) · host = domaine · link = forme d'une adresse de recette
+   search = page de recherche du site (facultatif) · path = début des adresses de recettes (pour Bing/DuckDuckGo) */
+const SITES={
+ ricardo:{n:'Ricardo',lang:'fr',host:'ricardocuisine.com',base:'https://www.ricardocuisine.com',path:'/recettes',link:/^\/recettes\/\d+-[a-z0-9-]+\/?$/i,search:q=>'https://www.ricardocuisine.com/recherche?searchValue='+encodeURIComponent(q)},
+ az:{n:'CuisineAZ',lang:'fr',host:'cuisineaz.com',base:'https://www.cuisineaz.com',path:'/recettes',link:/^\/recettes\/[a-z0-9-]+-\d+\.aspx$/i,search:q=>'https://www.cuisineaz.com/recettes/recherche_terme.aspx?recherche='+encodeURIComponent(q.replace(/\s+/g,'-'))},
+ tfpj:{n:'Trois fois par jour',lang:'fr',host:'troisfoisparjour.com',base:'https://www.troisfoisparjour.com',path:'/fr/recettes',link:/^\/fr\/recettes\/[a-z0-9-]+\/[a-z0-9-]+\/[a-z0-9-]+\/?$/i,search:q=>'https://www.troisfoisparjour.com/fr/?s='+encodeURIComponent(q)},
+ rte:{n:'RecipeTin Eats',lang:'en',host:'recipetineats.com',base:'https://www.recipetineats.com',path:'',link:/^\/(?!category|about|contact|privacy|recipes|tag|page|author|wp-)[a-z0-9-]{6,}\/?$/i,search:q=>'https://www.recipetineats.com/?s='+encodeURIComponent(q)},
+ ar:{n:'Allrecipes',lang:'en',host:'allrecipes.com',base:'https://www.allrecipes.com',path:'/recipe',link:/^\/recipe\/\d+\/[a-z0-9-]+\/?$/i,search:q=>'https://www.allrecipes.com/search?q='+encodeURIComponent(q)},
+ atk:{n:'America’s Test Kitchen',lang:'en',host:'americastestkitchen.com',base:'https://www.americastestkitchen.com',path:'/recipes',link:/^\/recipes\/\d+-[a-z0-9-]+\/?$/i}
 };
+const WEB=Object.keys(SITES);
+const WSITES=SITES;
+let cfg=store.get('cfg',{proxy:'',src:{}});cfg.src=cfg.src||{};[...WEB,'mdb'].forEach(k=>{if(cfg.src[k]===undefined)cfg.src[k]=true});store.set('cfg',cfg);
+const SRC_N={mdb:'TheMealDB',user:'Ma recette'};WEB.forEach(k=>SRC_N[k]=SITES[k].n);
+const SITE_SUFFIX=new RegExp('\\s*[|–-]\\s*('+['ricardo','cuisine ?az','allrecipes','recipe ?tin ?eats','america.?s test kitchen','trois fois par jour','3 fois par jour'].join('|')+').*$','i');
+
+/* Mots de recherche — français */
 const PQ={poulet:'poulet',boeuf:'boeuf',porc:'porc',poisson:'poisson',fruitsmer:'crevettes',tofu:'tofu',oeufs:'oeufs',legumineuses:'lentilles',vege:'végétarien',gibier:'gibier',salade:'salade repas',pates:'pâtes'};
 const PQ2={poisson:'saumon',fruitsmer:'pétoncles',legumineuses:'pois chiches',gibier:'canard',vege:'végé',oeufs:'omelette'};
 const FQ={bbq:'bbq grillé',asiatique:'asiatique',grecque:'grec',mexicaine:'mexicain',italienne:'italien',indienne:'indien',cajun:'cajun',mediterraneenne:'méditerranéen',quebecoise:'québécois'};
+/* Mots de recherche — anglais */
+const PQ_EN={poulet:'chicken',boeuf:'beef',porc:'pork',poisson:'fish',fruitsmer:'shrimp',tofu:'tofu',oeufs:'eggs',legumineuses:'lentils',vege:'vegetarian',gibier:'venison',salade:'salad',pates:'pasta'};
+const PQ2_EN={poisson:'salmon',fruitsmer:'scallops',legumineuses:'chickpeas',gibier:'duck',vege:'vegan',oeufs:'frittata'};
+const FQ_EN={bbq:'grilled bbq',asiatique:'asian',grecque:'greek',mexicaine:'mexican',italienne:'italian',indienne:'indian',cajun:'cajun',mediterraneenne:'mediterranean',quebecoise:'comfort food'};
 const FR_KW={bbq:/bbq|barbecue|grill|brochette|fumé|côtes levées|burger/i,asiatique:/asiat|teriyaki|thaï|thai|wok|ramen|sushi|tao|poké|coréen|japonais|chinois|vietnam|banh|nouilles|sésame|soya|sriracha|gochujang/i,
  grecque:/grec|souvlaki|gyro|tzatziki|moussaka|feta/i,mexicaine:/mexic|taco|burrito|fajita|enchilada|quesadilla|chili|nacho|tortilla/i,
  italienne:/italien|parmigiana|risotto|lasagne|carbonara|bolognaise|piccata|marsala|pesto|pizza|gnocchi|osso|toscan/i,
  indienne:/indien|tikka|masala|tandoori|biryani|korma|\bcari\b|curry|\bdal\b|dhal|paneer|poulet au beurre|butter chicken/i,
  cajun:/cajun|créole|jambalaya|gumbo|noirci|louisiane/i,mediterraneenne:/méditerr|marocain|tajine|chawarma|shawarma|falafel|paella|harissa|za.?atar|kefta|libanais|espagnol/i,
  quebecoise:/québ|pâté chinois|tourtière|chômeur|ragoût|bouilli|fèves au lard|poutine|cipaille|pain de viande|sauce brune/i};
-const DESSERT=/gâteau|gateau|tarte au(x)? (sucre|pomme|fraise|chocolat|citron)|biscuit|muffin|dessert|brownie|cupcake|crème glacée|sorbet|pouding|crêpe|beigne|cocktail|smoothie|confiture|cookie|sucré/i;
+const DESSERT=/gâteau|gateau|tarte au(x)? (sucre|pomme|fraise|chocolat|citron)|biscuit|muffin|dessert|brownie|cupcake|crème glacée|sorbet|pouding|crêpe|beigne|cocktail|smoothie|confiture|cookie|sucré|\bcakes?\b|ice cream|pudding|frosting|fudge|cheesecake|scones?|cinnamon roll|banana bread|candy|caramel/i;
+const PKW={poulet:/poulet|volaille|pilon|cuisses? de|chicken|supreme/,boeuf:/boeuf|bavette|steak|bifteck|entrecote|surlonge|hamburger|viande hachee|rosbif|contre-filet|faux-filet|bourguignon|roti de palette/,
+ porc:/porc|cotelette|jambon|bacon|lardon|saucisse|cotes levees|effiloche|pulled pork|filet mignon/,poisson:/poisson|saumon|truite|morue|cabillaud|thon|tilapia|aiglefin|fletan|\bsole\b|dore|maquereau|sardine|merlu|colin|omble|\blieu\b|\bbar\b/,
+ fruitsmer:/crevette|petoncle|homard|crabe|moule|calmar|fruits de mer|langoustine|palourde|huitre|scampi|saint-jacques/,tofu:/tofu/,oeufs:/oeuf|omelette|frittata|quiche|shakshuka/,
+ legumineuses:/lentille|pois chiche|haricot|feve|dahl|\bdal\b|falafel|houmous|legumineuse|chili/,vege:/vege|vegetar|vegan|vegane|tofu|lentille|pois chiche|champignon|legume/,
+ gibier:/gibier|cerf|chevreuil|wapiti|orignal|sanglier|lapin|canard|faisan|caille|bison|\boie\b|perdrix|pintade/,salade:/salade/,
+ pates:/pates|spaghetti|linguine|penne|fettuccine|macaroni|lasagne|tagliatelle|rigatoni|fusilli|orzo|gnocchi|ravioli|tortellini|nouilles|cannelloni/};
+const PKW_EN={poulet:/chicken|drumstick|poultry/,boeuf:/beef|steak|brisket|burger|sirloin|flank|chuck|short rib|meatball|meatloaf|ribeye|bolognese/,
+ porc:/pork|\bham\b|bacon|sausage|\bribs\b|carnitas|\bchops?\b|prosciutto|chorizo/,poisson:/fish|salmon|\bcod\b|tuna|halibut|trout|tilapia|haddock|snapper|sea bass|mahi|barramundi|swordfish/,
+ fruitsmer:/shrimp|prawn|scallop|lobster|crab|mussel|clam|calamari|squid|seafood|oyster/,tofu:/tofu/,oeufs:/\beggs?\b|omelet|frittata|quiche|shakshuka/,
+ legumineuses:/lentil|chickpea|\bbeans?\b|\bdal\b|dhal|falafel|hummus|legume|chili/,vege:/vegetarian|vegan|veggie|tofu|lentil|chickpea|mushroom|vegetable|cauliflower|eggplant/,
+ gibier:/venison|rabbit|duck|goose|pheasant|quail|boar|\belk\b|bison|game/,salade:/salad/,
+ pates:/pasta|spaghetti|linguine|penne|fettuccine|macaroni|lasagna|noodle|gnocchi|ravioli|orzo|rigatoni|ziti|tortellini/};
+const qFor=(site,p,f,second)=>{const en=SITES[site].lang==='en';const P=en?(second?PQ2_EN:PQ_EN):(second?PQ2:PQ),F=en?FQ_EN:FQ;return P[p.id]?P[p.id]+(f.id!=='all'?' '+F[f.id]:''):null};
+const protOk=(site,pid,t)=>(SITES[site].lang==='en'?PKW_EN:PKW)[pid].test(norm(t));
+
 const encId=u=>'w_'+btoa(unescape(encodeURIComponent(u))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const decId=id=>{let s=id.slice(2).replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return decodeURIComponent(escape(atob(s)))};
-const siteOf=u=>u.includes('ricardocuisine')?'ricardo':'az';
+const siteOf=u=>WEB.find(k=>u.includes(SITES[k].host))||'az';
 const plain=s=>{const d=document.createElement('div');d.innerHTML=String(s??'');return(d.textContent||'').replace(/\s+/g,' ').trim()};
 const slugTitle=p=>cap(decodeURIComponent(p.split('/').filter(Boolean).pop()).replace(/\.aspx$/,'').replace(/^\d+-|-\d+$/g,'').replace(/-/g,' '));
 function proxies(){const l=[];if(cfg.proxy)l.push(cfg.proxy.trim().replace(/\/+$/,'')+'/?url=');l.push('https://api.allorigins.win/raw?url=','https://corsproxy.io/?url=');return l}
@@ -424,41 +455,39 @@ async function getHTML(url){const k='H_'+url;if(memo[k])return memo[k];
   if(r.ok){const t=await r.text();if(t.length>800)return memo[k]=t}}catch(e){}}
  throw new Error('proxy')}
 const parseDoc=h=>new DOMParser().parseFromString(h,'text/html');
-function linksFrom(doc,site,base){const W=WSITES[site],m=new Map();
+function linksFrom(doc,site,base){const W=SITES[site],m=new Map();
  doc.querySelectorAll('a[href]').forEach(a=>{let u;try{u=new URL(a.getAttribute('href'),base)}catch(e){return}
   if(!u.hostname.endsWith(W.host)||!W.link.test(u.pathname))return;const path=u.pathname.replace(/\/$/,'');
   const img=a.querySelector('img')||a.closest('article,li,div')?.querySelector('img');
   const src=img&&(img.getAttribute('data-src')||img.getAttribute('data-lazy-src')||img.getAttribute('src')||'');
   const t=plain(a.getAttribute('title')||a.textContent||img?.getAttribute('alt')||'');
   const o=m.get(path)||{url:W.base+path,title:'',thumb:''};
-  if(t&&t.length<120&&t.length>o.title.length)o.title=t;if(src&&!src.startsWith('data:')&&!o.thumb)o.thumb=new URL(src,base).href;m.set(path,o)});
+  if(t&&t.length<120&&t.length>o.title.length)o.title=t;if(src&&!src.startsWith('data:')&&!o.thumb){try{o.thumb=new URL(src,base).href}catch(e){}}m.set(path,o)});
  return[...m.values()]}
-async function ddg(site,q){const W=WSITES[site];const h=await getHTML('https://html.duckduckgo.com/html/?q='+encodeURIComponent('site:'+W.host+'/recettes '+q));
+function pushHit(out,W,href,title){try{const u=new URL(href);if(u.hostname.endsWith(W.host)&&W.link.test(u.pathname))out.push({url:W.base+u.pathname.replace(/\/$/,''),title:plain(title).replace(SITE_SUFFIX,''),thumb:''})}catch(e){}}
+async function ddg(site,q){const W=SITES[site];const h=await getHTML('https://html.duckduckgo.com/html/?q='+encodeURIComponent('site:'+W.host+(W.path||'')+' '+q));
  const out=[];parseDoc(h).querySelectorAll('a.result__a').forEach(a=>{let href=a.getAttribute('href')||'';const m=href.match(/uddg=([^&]+)/);if(m)href=decodeURIComponent(m[1]);
-  try{const u=new URL(href,'https://duckduckgo.com');if(u.hostname.endsWith(W.host)&&W.link.test(u.pathname))out.push({url:W.base+u.pathname.replace(/\/$/,''),title:plain(a.textContent).replace(/\s*[|–-]\s*(ricardo|cuisine ?az).*$/i,''),thumb:''})}catch(e){}});
+  try{pushHit(out,W,new URL(href,'https://duckduckgo.com').href,a.textContent)}catch(e){}});
  return out}
-async function bing(site,q){const W=WSITES[site];const h=await getHTML('https://www.bing.com/search?setlang=fr&cc=CA&count=30&q='+encodeURIComponent('site:'+W.host+' '+q+' recette'));
+async function bing(site,q){const W=SITES[site],en=W.lang==='en';const h=await getHTML('https://www.bing.com/search?setlang='+(en?'en':'fr')+'&cc='+(en?'US':'CA')+'&count=30&q='+encodeURIComponent('site:'+W.host+' '+q+(en?' recipe':' recette')));
  const out=[];parseDoc(h).querySelectorAll('li.b_algo h2 a').forEach(a=>{let href=a.getAttribute('href')||'';
   try{let u=new URL(href,'https://www.bing.com');const k=u.searchParams.get('u');if(u.hostname.endsWith('bing.com')&&k&&k.startsWith('a1')){let b=k.slice(2).replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';u=new URL(atob(b))}
-   if(u.hostname.endsWith(W.host)&&W.link.test(u.pathname))out.push({url:W.base+u.pathname.replace(/\/$/,''),title:plain(a.textContent).replace(/\s*[|–-]\s*(ricardo|cuisine ?az).*$/i,''),thumb:''})}catch(e){}});
+   pushHit(out,W,u.href,a.textContent)}catch(e){}});
  return out}
-async function webSearch(site,q){const k='S_'+site+q;if(memo[k])return memo[k];
- const parts=await Promise.all([getHTML(WSITES[site].search(q)).then(h=>linksFrom(parseDoc(h),site,WSITES[site].base)).catch(()=>[]),bing(site,q).catch(()=>[]),ddg(site,q).catch(()=>[])]);
- const seen=new Map();parts[1].concat(parts[2],parts[0]).forEach(x=>{const o=seen.get(x.url);if(!o)seen.set(x.url,{...x});else{if(!o.thumb&&x.thumb)o.thumb=x.thumb;if(!o.title&&x.title)o.title=x.title}});let l=[...seen.values()];
- l=l.map(x=>({id:encId(x.url),src:site,title:(x.title||slugTitle(x.url)).replace(/\s*[|–]\s*[^|–]{1,25}$/,''),thumb:x.thumb})).filter(x=>!DESSERT.test(x.title));
+async function webSearch(site,q){const k='S_'+site+q;if(memo[k])return memo[k];const W=SITES[site];
+ const parts=await Promise.all([W.search?getHTML(W.search(q)).then(h=>linksFrom(parseDoc(h),site,W.base)).catch(()=>[]):Promise.resolve([]),bing(site,q).catch(()=>[]),ddg(site,q).catch(()=>[])]);
+ const seen=new Map();parts[1].concat(parts[2],parts[0]).forEach(x=>{const o=seen.get(x.url);if(!o)seen.set(x.url,{...x});else{if(!o.thumb&&x.thumb)o.thumb=x.thumb;if(!o.title&&x.title)o.title=x.title}});
+ let l=[...seen.values()].map(x=>({id:encId(x.url),src:site,raw:(x.title||slugTitle(x.url)).replace(SITE_SUFFIX,'').replace(/\s*[|–]\s*[^|–]{1,25}$/,''),thumb:x.thumb})).filter(x=>!DESSERT.test(x.raw));
  return memo[k]=l}
-const PKW={poulet:/poulet|volaille|pilon|cuisses? de|chicken|supreme/,boeuf:/boeuf|bavette|steak|bifteck|entrecote|surlonge|hamburger|viande hachee|rosbif|contre-filet|faux-filet|bourguignon|roti de palette/,
- porc:/porc|cotelette|jambon|bacon|lardon|saucisse|cotes levees|effiloche|pulled pork|filet mignon/,poisson:/poisson|saumon|truite|morue|cabillaud|thon|tilapia|aiglefin|fletan|\bsole\b|dore|maquereau|sardine|merlu|colin|omble|\blieu\b|\bbar\b/,
- fruitsmer:/crevette|petoncle|homard|crabe|moule|calmar|fruits de mer|langoustine|palourde|huitre|scampi|saint-jacques/,tofu:/tofu/,oeufs:/oeuf|omelette|frittata|quiche|shakshuka/,
- legumineuses:/lentille|pois chiche|haricot|feve|dahl|\bdal\b|falafel|houmous|legumineuse|chili/,vege:/vege|vegetar|vegan|vegane|tofu|lentille|pois chiche|champignon|legume/,
- gibier:/gibier|cerf|chevreuil|wapiti|orignal|sanglier|lapin|canard|faisan|caille|bison|\boie\b|perdrix|pintade/,salade:/salade/,
- pates:/pates|spaghetti|linguine|penne|fettuccine|macaroni|lasagne|tagliatelle|rigatoni|fusilli|orzo|gnocchi|ravioli|tortellini|nouilles|cannelloni/};
 const flavMatch=(f,t)=>f.id==='all'||(FR_KW[f.id]&&FR_KW[f.id].test(t))||(f.kw&&f.kw.test(t));
-async function webList(p,f){const qs=[PQ[p.id]+(f.id!=='all'?' '+FQ[f.id]:'')];if(PQ2[p.id])qs.push(PQ2[p.id]+(f.id!=='all'?' '+FQ[f.id]:''));
- const res={};await Promise.all(['ricardo','az'].filter(s=>cfg.src[s]).map(async s=>{const seen=new Set();res[s]=[];
-  for(const l of await Promise.all(qs.map(q=>webSearch(s,q))))l.forEach(x=>{if(!seen.has(x.id)){seen.add(x.id);res[s].push(x)}})
-  res[s]=res[s].filter(x=>PKW[p.id].test(norm(x.title)));const fl=res[s].filter(x=>flavMatch(f,x.title));
-  res[s]=fl.length>=3?fl:[...fl,...res[s].filter(x=>!fl.includes(x))]}));
+async function finishTitles(list){const en=list.filter(x=>SITES[x.src].lang==='en');await trTitles(en.map(x=>x.raw));
+ list.forEach(x=>{x.title=SITES[x.src].lang==='en'?tt(x.raw):x.raw;if(SITES[x.src].lang==='en')x.titleEn=x.raw});return list}
+async function webList(p,f){const res={};
+ await Promise.all(WEB.filter(s=>cfg.src[s]).map(async s=>{const qs=[qFor(s,p,f),qFor(s,p,f,true)].filter(Boolean);const seen=new Set();let l=[];
+  for(const r of await Promise.all(qs.map(q=>webSearch(s,q))))r.forEach(x=>{if(!seen.has(x.id)){seen.add(x.id);l.push({...x})}});
+  l=l.filter(x=>protOk(s,p.id,x.raw));const fl=l.filter(x=>flavMatch(f,x.raw));
+  l=(fl.length>=3?fl:[...fl,...l.filter(x=>!fl.includes(x))]).slice(0,30);
+  res[s]=await finishTitles(l)}));
  return res}
 const isoMin=d=>{const m=String(d||'').match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?/);return m?(+m[1]||0)*1440+(+m[2]||0)*60+(+m[3]||0):0};
 function findRecipe(o){if(!o||typeof o!=='object')return null;if(Array.isArray(o)){for(const x of o){const r=findRecipe(x);if(r)return r}return null}
@@ -467,29 +496,35 @@ function stepsOf(ins){const out=[];const walk=x=>{if(!x)return;if(typeof x==='st
   x.includes('<')||(out.length<=1&&out.splice(0,out.length,...splitSteps(plain(x))));return}
   if(Array.isArray(x))return x.forEach(walk);if(x.itemListElement)return walk(x.itemListElement);if(x.text)out.push(plain(x.text));else if(x.name)out.push(plain(x.name))};
  walk(ins);return out.filter(Boolean)}
-async function webRecipe(id){const url=decId(id),site=siteOf(url);const doc=parseDoc(await getHTML(url));let rec=null;
+async function webRecipe(id){const url=decId(id),site=siteOf(url),en=SITES[site].lang==='en';const doc=parseDoc(await getHTML(url));let rec=null;
  doc.querySelectorAll('script[type="application/ld+json"]').forEach(s=>{if(rec)return;try{rec=findRecipe(JSON.parse(s.textContent.replace(/[\u0000-\u001F]+/g,' ')))}catch(e){}});
  if(!rec)throw new Error('Recette illisible');
  let img=rec.image;if(Array.isArray(img))img=img[0];if(img&&typeof img==='object')img=img.url;
- const steps=stepsOf(rec.recipeInstructions);const ings=(rec.recipeIngredient||rec.ingredients||[]).map(x=>parseUserIng(plain(x))).filter(x=>x.fr);
- let time=isoMin(rec.totalTime)||(isoMin(rec.prepTime)+isoMin(rec.cookTime)),est=false,ov=false;
+ let steps=stepsOf(rec.recipeInstructions);let ingLines=(rec.recipeIngredient||rec.ingredients||[]).map(x=>plain(x)).filter(Boolean);
+ if(!ingLines.length&&!steps.length)throw new Error('Recette illisible');
+ let title=plain(rec.name)||slugTitle(url),titleEn=null,trFail=false,ings;
+ if(en){titleEn=title;const {out,failed}=await trLines([title,...ingLines.map(preM),...steps]);trFail=failed;let k=0;title=cap(out[k++]);
+  ings=ingLines.map(l=>{const x=parseUserIng(fixU(out[k++]));x.en=l;return x}).filter(x=>x.fr);steps=steps.map(()=>out[k++]);if(!failed){titles[titleEn]=title;store.set('titles',titles)}}
+ else ings=ingLines.map(parseUserIng).filter(x=>x.fr);
+ let time=isoMin(rec.totalTime)||(isoMin(rec.prepTime)+isoMin(rec.cookTime)),est=false;
  if(!time){const e=estimate(steps.join(' '),ings.length,steps.length);time=e.time;est=true}
  const y=String(Array.isArray(rec.recipeYield)?rec.recipeYield.join(' '):rec.recipeYield||'').match(/\d+/);
- const r={id,src:site,title:plain(rec.name)||slugTitle(url),img:img||'',servings:y?Math.min(+y[0],24):4,time,est,estServ:!y,overnight:ov,ings,steps};
- trc[id]=r;const keys=Object.keys(trc);if(keys.length>60)delete trc[keys[0]];store.set('trc',trc);return r}
-async function randomWeb(){const srcs=['ricardo','az'].filter(s=>cfg.src[s]);if(!srcs.length)throw 0;
- const p=PROTEINS[Math.floor(Math.random()*PROTEINS.length)],f=FLAVORS[Math.floor(Math.random()*FLAVORS.length)];
- const s=srcs[Math.floor(Math.random()*srcs.length)];const l=(await webSearch(s,PQ[p.id]+(f.id!=='all'?' '+FQ[f.id]:''))).filter(x=>PKW[p.id].test(norm(x.title)));
- if(!l.length)throw 0;return webRecipe(l[Math.floor(Math.random()*l.length)].id)}
-const VERSION='v4';
+ const r={id,src:site,title,titleEn,img:img||'',servings:y?Math.min(+y[0],24):4,time,est,estServ:!y,overnight:false,ings,steps,trFail};
+ if(!trFail){trc[id]=r;const keys=Object.keys(trc);if(keys.length>60)delete trc[keys[0]];store.set('trc',trc)}return r}
+async function randomWeb(){const srcs=WEB.filter(s=>cfg.src[s]);if(!srcs.length)throw 0;
+ for(let t=0;t<3;t++){const p=PROTEINS[Math.floor(Math.random()*PROTEINS.length)],f=FLAVORS[Math.floor(Math.random()*FLAVORS.length)];
+  const s=srcs[Math.floor(Math.random()*srcs.length)];const l=(await webSearch(s,qFor(s,p,f))).filter(x=>protOk(s,p.id,x.raw));
+  if(l.length){try{return await webRecipe(l[Math.floor(Math.random()*l.length)].id)}catch(e){}}}
+ throw 0}
+const VERSION='v5';
 function vSettings(app){app.innerHTML=`<div class="note">Version de l’application : <b>${VERSION}</b></div><h2>Sources de recettes</h2>
- ${[['ricardo','Ricardo (ricardocuisine.com) — français'],['az','CuisineAZ (cuisineaz.com) — français'],['mdb','TheMealDB — anglais, traduit']].map(([k,n])=>`<label class="gi" style="font-weight:400"><input type="checkbox" ${cfg.src[k]?'checked':''} onchange="cfg.src['${k}']=this.checked;store.set('cfg',cfg)"><div class="gn">${n}</div></label>`).join('')}
- <h2>Relais (pour Ricardo et CuisineAZ)</h2>
- <div class="muted">Le navigateur ne peut pas lire Ricardo et CuisineAZ directement. Colle ici l’adresse de ton relais Cloudflare (voir LISEZ-MOI). Sans relais, l’application essaie des relais publics gratuits, moins fiables.</div>
+ ${[...WEB.map(k=>[k,SITES[k].n+' ('+SITES[k].host+') — '+(SITES[k].lang==='en'?'anglais, traduit':'français')]),['mdb','TheMealDB — anglais, traduit']].map(([k,n])=>`<label class="gi" style="font-weight:400"><input type="checkbox" ${cfg.src[k]?'checked':''} onchange="cfg.src['${k}']=this.checked;store.set('cfg',cfg)"><div class="gn">${esc(n)}</div></label>`).join('')}
+ <h2>Relais (pour les sites web)</h2>
+ <div class="muted">Le navigateur ne peut pas lire ces sites directement. Colle ici l’adresse de ton relais Cloudflare. Chaque site doit aussi être permis dans la ligne PERMIS du relais.</div>
  <label>Adresse du relais</label><input type="text" id="px" value="${esc(cfg.proxy)}" placeholder="https://recettes-relais.ton-nom.workers.dev">
  <br><br><div class="actions" style="grid-template-columns:1fr 1fr"><button class="btn" onclick="cfg.proxy=$('#px').value.trim();store.set('cfg',cfg);toast('💾 Enregistré')">💾 Enregistrer</button><button class="btn sec" onclick="testProxy()">🧪 Tester</button></div><div id="pxr" class="note" style="display:none"></div>`}
-async function testProxy(){cfg.proxy=$('#px').value.trim();store.set('cfg',cfg);const o=$('#pxr');o.style.display='block';o.textContent='Test en cours…';
- const res=[];for(const s of ['ricardo','az']){try{memo['S_'+s+'poulet']=null;const l=(await webSearch(s,'poulet')).filter(x=>PKW.poulet.test(norm(x.title)));res.push((l.length?'✅ ':'⚠️ ')+SRC_N[s]+' : '+l.length+' recettes trouvées')}catch(e){res.push('❌ '+SRC_N[s]+' : inaccessible')}}
+async function testProxy(){cfg.proxy=$('#px').value.trim();store.set('cfg',cfg);const o=$('#pxr');o.style.display='block';o.textContent='Test en cours… (jusqu’à 30 secondes)';
+ const res=await Promise.all(WEB.map(async s=>{const q=SITES[s].lang==='en'?'chicken':'poulet';try{memo['S_'+s+q]=null;const l=(await webSearch(s,q)).filter(x=>protOk(s,'poulet',x.raw));return(l.length?'✅ ':'⚠️ ')+SITES[s].n+' : '+l.length+' recettes trouvées'}catch(e){return'❌ '+SITES[s].n+' : inaccessible'}}));
  o.innerHTML=res.join('<br>')}
 
 /* ================= NAVIGATION ================= */
@@ -510,7 +545,7 @@ async function render(){const v=S.view;$('#title').textContent=S.title||TITLES[v
  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===(tabOf[v]||S.from)));
  window.scrollTo(0,0);const app=$('#app');
  try{await ({home:vHome,flav:vFlav,res:vRes,recipe:vRecipe,week:vWeek,groc:vGroc,favs:vFavs,book:vBook,edit:vEdit,settings:vSettings}[v]||vHome)(app)}
- catch(e){console.error(e);app.innerHTML=`<div class="empty">😕 Impossible de charger.<br><small>Vérifie ta connexion Internet.</small><br><br><button class="btn sec" onclick="render()">Réessayer</button></div>`}}
+ catch(e){console.error(e);app.innerHTML=`<div class="empty">😕 Impossible de charger.<br><small>${e&&e.message==='Recette illisible'?'Cette recette n’est pas accessible (abonnement requis ou page protégée). Essaie-en une autre.':'Vérifie ta connexion Internet.'}</small><br><br><button class="btn sec" onclick="render()">Réessayer</button></div>`}}
 
 /* ================= VUES ================= */
 function planBanner(){return planTarget?`<div class="banner">📅 Choisis une recette pour <b>${dayLabel(planTarget)}</b><button class="btn sm ghost" onclick="planTarget=null;render()">Annuler</button></div>`:''}
@@ -520,20 +555,20 @@ function vFlav(app){const p=PROTEINS.find(x=>x.id===S.p);app.innerHTML=planBanne
 let lastList=[];
 const cardH=(r)=>`<div class="card" onclick="openR('${r.id}')">${r.thumb||r.img?`<img src="${esc(r.thumb||r.img)}${/themealdb/.test(r.thumb||r.img)?'/preview':''}" onerror="this.onerror=null;this.src='${esc(r.thumb||r.img)}'" loading="lazy" alt="">`:`<div class="ph">${(PROTEINS.find(p=>p.id===r.protein)||{e:'🍽️'}).e}</div>`}
  <div><div class="t">${esc(r.title||tt(r.name))}</div><div class="s">${r.src==='user'?'<span class="badge g">Ma recette</span>':'<span class="badge">'+SRC_N[r.src||'mdb']+'</span>'}${r.area&&AREA_FR[r.area]?'<span class="badge">'+AREA_FR[r.area]+'</span>':''}${done[r.id]?'<span class="badge g">✅ Déjà faite</span>':''}${favs[r.id]?'⭐':''}</div></div></div>`;
-async function vRes(app){app.innerHTML=loading('Recherche sur Ricardo, CuisineAZ et TheMealDB…');const p=PROTEINS.find(x=>x.id===S.p),f=FLAVORS.find(x=>x.id===S.f);
+async function vRes(app){app.innerHTML=loading('Recherche dans tes sites de recettes…');const p=PROTEINS.find(x=>x.id===S.p),f=FLAVORS.find(x=>x.id===S.f);
  const my=Object.values(mine).filter(r=>r.protein===p.id&&(f.id==='all'||r.flavor===f.id));
  const pm=(async()=>{if(!cfg.src.mdb)return{list:[],fb:false};const all=await proteinList(p);let l=await flavorFilter(all,f);let fb=false;if(!l.length&&all.length){l=all;fb=true}await trTitles(l.slice(0,60).map(x=>x.name));return{list:l.slice(0,60),fb}})().catch(()=>({list:[],fb:false,err:1}));
  const pw=webList(p,f).catch(()=>({}));const [m,w]=await Promise.all([pm,pw]);if(S.view!=='res')return;
- const cols=[w.ricardo||[],w.az||[],m.fb?[]:m.list],mixed=[];for(let i=0;i<80;i++)cols.forEach(c=>c[i]&&mixed.push(c[i]));
+ const cols=[...WEB.map(k=>w[k]||[]),m.fb?[]:m.list],mixed=[];for(let i=0;i<80;i++)cols.forEach(c=>c[i]&&mixed.push(c[i]));
  if(m.fb)mixed.push(...m.list);lastList=[...my,...mixed];
- const cnt=Object.entries({ricardo:w.ricardo,az:w.az,mdb:m.list}).filter(([k])=>cfg.src[k]).map(([k,v])=>SRC_N[k]+' '+(v?v.length:0)).join(' · ');
- const webDown=(cfg.src.ricardo&&!(w.ricardo||[]).length)&&(cfg.src.az&&!(w.az||[]).length);
+ const cnt=Object.entries({...Object.fromEntries(WEB.map(k=>[k,w[k]])),mdb:m.list}).filter(([k])=>cfg.src[k]).map(([k,v])=>SRC_N[k]+' '+(v?v.length:0)).join(' · ');
+ const on=WEB.filter(k=>cfg.src[k]);const webDown=on.length&&on.every(k=>!(w[k]||[]).length);
  app.innerHTML=planBanner()+(lastList.length?`<button class="btn sec full" style="margin-bottom:12px" onclick="surpriseList()">🎲 Surprends-moi parmi ces recettes</button>`:'')+
-  (webDown?`<div class="note">Ricardo et CuisineAZ n’ont rien donné. Vérifie le relais dans ⚙️ Réglages.</div>`:'')+
+  (webDown?`<div class="note">Aucun site web n’a répondu. Vérifie le relais dans ⚙️ Réglages.</div>`:'')+
   `<div class="muted" style="margin-bottom:8px">${lastList.length} recette(s) — ${cnt}</div>`+
   (lastList.length?`<div class="list">${lastList.map(cardH).join('')}</div>`:`<div class="empty">Aucune recette trouvée.<br><br><button class="btn sec" onclick="go('edit',{})">➕ Ajouter ma propre recette</button></div>`)}
 function surpriseList(){const x=lastList[Math.floor(Math.random()*lastList.length)];openR(x.id)}
-async function surprise(){$('#app').innerHTML=loading('Je te trouve une idée…');const pool=['ricardo','az','mdb'].filter(k=>cfg.src[k]);const pick=pool[Math.floor(Math.random()*pool.length)]||'mdb';
+async function surprise(){$('#app').innerHTML=loading('Je te trouve une idée…');const pool=[...WEB,'mdb'].filter(k=>cfg.src[k]);const pick=pool[Math.floor(Math.random()*pool.length)]||'mdb';
  try{showR(pick==='mdb'?await randomRecipe():await randomWeb())}catch(e){try{showR(await randomRecipe())}catch(e2){render()}}}
 function openR(id){go('recipe',{id,f:S.view==='res'?S.f:undefined})}
 function showR(r){R=r;portions=r.servings||4;selSides=new Set();go('recipe',{id:r.id})}
